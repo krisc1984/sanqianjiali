@@ -24,8 +24,82 @@ allowed-tools: Read, Write, Edit, Bash
 | `/角色列表` | 查看所有后宫角色 |
 | `/养成进度 {角色名}` | 查看角色养成状态 |
 | `/上传聊天记录 {角色名}` | 为角色追加聊天记录 |
+| `/保存进度 {角色名}` | 保存聊天记录、好感度、记忆到角色目录 |
 
 当用户进入角色扮演模式后，自动保持角色设定直到用户说"退出角色"或召唤其他角色。
+
+---
+
+## 进度保存机制
+
+### 自动保存触发条件
+
+在角色扮演互动中，以下情况**自动触发**进度保存（无需用户手动输入）：
+
+1. **用户说"保存进度"或"记录进度"**
+2. **角色扮演结束**（用户说"退出角色"或召唤其他角色）
+3. **重要剧情发生**（留宿侍寝、表白、承诺、纪念日等）
+4. **好感度发生变化后**（互动告一段落时）
+
+### 保存内容
+
+每次保存自动执行以下操作：
+
+```bash
+# 1. 保存聊天记录到 chat_history/{date}_{time}.txt
+python3 ${CLAUDE_SKILL_DIR}/tools/growth_system.py \
+  --action save-chat \
+  --slug {character_slug} \
+  --characters-dir ./后宫三千佳丽/characters \
+  --input /tmp/chat_session.txt \
+  --date {current_date}
+
+# 2. 更新好感度
+python3 ${CLAUDE_SKILL_DIR}/tools/growth_system.py \
+  --action update-affection \
+  --slug {character_slug} \
+  --characters-dir ./后宫三千佳丽/characters \
+  --delta {affection_delta} \
+  --reason "{reason}"
+
+# 3. 添加重要记忆
+python3 ${CLAUDE_SKILL_DIR}/tools/growth_system.py \
+  --action add-memory \
+  --slug {character_slug} \
+  --characters-dir ./后宫三千佳丽/characters \
+  --event "{event_name}" \
+  --date {current_date} \
+  --details "{event_details}"
+```
+
+### 聊天会话记录格式
+
+互动过程中，将对话内容暂存到 `/tmp/chat_session.txt`：
+
+```markdown
+# 聊天记录 - {date}
+# 角色：{character_name}
+# 地点：{location}
+
+---
+
+**皇上**：{user_message}
+
+**{character_name}**：{character_response}
+（动作/表情描述）
+...
+
+---
+
+**好感度变化**：{old} → {new} (+{delta})
+**解锁剧情**：{unlocked_stories}
+```
+
+### 手动保存指令
+
+用户也可主动输入：
+- `/保存进度` - 保存当前角色的进度
+- `/保存进度 甄嬛` - 保存特定角色的进度
 
 ---
 
@@ -208,7 +282,87 @@ mkdir -p characters/{slug}/chat_history
 1. 读取角色的 `character.md` 和 `meta.json`
 2. 进入角色扮演模式
 3. 在每条回复前标记角色名
-4. 保持角色设定直到用户说"退出角色"
+4. 保持角色设定直到用户说"退出角色"或召唤其他角色
+
+### 会话跟踪
+
+进入角色扮演模式后，**开始记录对话**到临时文件 `/tmp/chat_session.txt`：
+
+```markdown
+# 聊天记录 - {date}
+# 角色：{character_name}
+# 地点：{location}
+
+---
+
+**皇上**：{user_message}
+
+**{character_name}**：{character_response}
+（动作/表情描述）
+```
+
+### 退出角色时的自动保存
+
+当用户说"退出角色"、"结束互动"或召唤其他角色时：
+
+**Step 1**: 确认本次互动的好感度变化
+
+根据互动内容计算总的好感度变化：
+- 留宿侍寝：+10
+- 表白/承诺：+5
+- 特殊剧情：+10~20
+- 普通互动：+1~3
+
+**Step 2**: 确认是否需要添加记忆
+
+以下情况添加记忆：
+- 留宿侍寝
+- 表白/承诺
+- 重要节日互动
+- 解锁新剧情
+
+**Step 3**: 执行保存命令
+
+```bash
+# 保存聊天记录
+python3 ${CLAUDE_SKILL_DIR}/tools/growth_system.py \
+  --action save-chat \
+  --slug {character_slug} \
+  --characters-dir ./后宫三千佳丽/characters \
+  --input /tmp/chat_session.txt \
+  --date {current_date}
+
+# 更新好感度
+python3 ${CLAUDE_SKILL_DIR}/tools/growth_system.py \
+  --action update-affection \
+  --slug {character_slug} \
+  --characters-dir ./后宫三千佳丽/characters \
+  --delta {total_delta} \
+  --reason "{reason}"
+
+# 添加记忆（如有）
+python3 ${CLAUDE_SKILL_DIR}/tools/growth_system.py \
+  --action add-memory \
+  --slug {character_slug} \
+  --characters-dir ./后宫三千佳丽/characters \
+  --event "{event_name}" \
+  --date {current_date} \
+  --details "{event_details}"
+```
+
+**Step 4**: 显示保存结果
+
+```
+✅ 进度已保存
+
+📊 {角色名} · 养成进度
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💕 好感度：{old} → {new} ({delta})
+🎁 已解锁剧情：{unlocked_count}/{total_count}
+💬 聊天记录：{chat_count} 条
+📜 记忆库：{memory_count} 条
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
 
 ### 互动规则
 
@@ -431,6 +585,56 @@ characters/{slug}/
 | 富察容音 | 延禧攻略 | 温柔、善良、白月光 |
 
 使用方式：`/新建角色` → 选择 [D] 预设模板 → 选择角色
+
+---
+
+## 手动保存进度指令
+
+当用户输入 `/保存进度` 或 `/保存进度 {角色名}` 时：
+
+### Step 1: 确定保存目标
+
+- 如果有角色名：保存到指定角色
+- 如果没有角色名：保存到当前角色扮演中的角色
+- 如果不在角色扮演中：提示用户指定角色名
+
+### Step 2: 询问保存内容
+
+```
+📝 保存进度
+
+请选择要保存的内容：
+
+[1] 仅保存聊天记录
+[2] 更新好感度（+{delta}）
+[3] 添加重要记忆
+[4] 全部保存（推荐）
+
+或者直接告诉臣妾要保存什么～
+```
+
+### Step 3: 执行保存
+
+根据用户选择执行相应的 `growth_system.py` 命令。
+
+### Step 4: 显示结果
+
+```
+✅ 进度已保存
+
+📊 {角色名} · 养成进度
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💕 好感度：{old} → {new} ({delta}) - {reason}
+🎁 已解锁剧情：{unlocked_count}/{total_count}
+   {unlocked_story_names}
+💬 聊天记录：{chat_count} 条
+📜 记忆库：{memory_count} 条
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+存档位置：characters/{slug}/
+  - chat_history/{date}_{time}.txt
+  - memories/memories.json
+```
 
 ---
 
